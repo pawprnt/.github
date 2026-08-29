@@ -49,6 +49,9 @@ jobs:
           git fetch aur master
           git checkout aur/master
 
+          # fix permissions for builder user
+          chown -R builder:builder /__w/forager/forager/packaging/aur
+
           # get version from tag
           VERSION="${GITHUB_REF_NAME#v}"
 
