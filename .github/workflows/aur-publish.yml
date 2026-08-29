@@ -53,7 +53,12 @@ jobs:
           chown -R builder:builder /__w/forager/forager/packaging/aur
 
           # get version from tag
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            echo "ERROR: must be triggered from a tag push (v*)"
+            exit 1
+          fi
 
           # update version
           sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
