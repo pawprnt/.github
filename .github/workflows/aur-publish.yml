@@ -1,0 +1,57 @@
+name: Push to AUR
+
+on:
+  workflow_call:
+    inputs:
+      pkgname:
+        description: 'Package name'
+        required: true
+        type: string
+    secrets:
+      AUR_DEPLOY_KEY:
+        description: 'SSH private key for AUR'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo pacman -Sy --noconfirm pacman-contrib
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_DEPLOY_KEY }}" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Push to AUR
+        run: |
+          cd packaging/aur
+
+          git init
+          git remote add aur aur@aur.archlinux.org:${{ inputs.pkgname }}.git
+          git fetch aur master
+          git checkout aur/master
+
+          # get version from tag
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # update version
+          sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          # update sha256sums
+          updpkgsums
+
+          # update .SRCINFO
+          makepkg --printsrcinfo > .SRCINFO
+
+          # commit and push
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet && exit 0
+          git commit -m "${VERSION}"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur_key -o StrictHostKeyChecking=no" git push aur master
