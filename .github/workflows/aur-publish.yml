@@ -17,17 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     env:
-      GIT_SSH_COMMAND: "ssh -i /root/.ssh/aur_key -o StrictHostKeyChecking=no"
+      GIT_SSH_COMMAND: "ssh -i /home/builder/.ssh/aur_key -o StrictHostKeyChecking=no"
     steps:
       - name: Install tools
-        run: pacman -Sy --noconfirm openssh git sed pacman-contrib
+        run: pacman -Sy --noconfirm openssh git sed pacman-contrib sudo
+
+      - name: Create non-root user
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
       - name: Setup SSH
         run: |
-          mkdir -p /root/.ssh
-          echo "${{ secrets.AUR_DEPLOY_KEY }}" > /root/.ssh/aur_key
-          chmod 600 /root/.ssh/aur_key
-          ssh-keyscan aur.archlinux.org >> /root/.ssh/known_hosts
+          mkdir -p /home/builder/.ssh
+          echo "${{ secrets.AUR_DEPLOY_KEY }}" > /home/builder/.ssh/aur_key
+          chmod 600 /home/builder/.ssh/aur_key
+          ssh-keyscan aur.archlinux.org >> /home/builder/.ssh/known_hosts
+          chown -R builder:builder /home/builder/.ssh
 
       - uses: actions/checkout@v4
 
@@ -50,11 +56,11 @@ jobs:
           sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/pkgrel=.*/pkgrel=1/" PKGBUILD
 
-          # update sha256sums
-          updpkgsums
+          # update sha256sums (must run as non-root)
+          sudo -u builder updpkgsums
 
           # update .SRCINFO
-          makepkg --printsrcinfo > .SRCINFO
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO
 
           # commit and push
           git add PKGBUILD .SRCINFO
