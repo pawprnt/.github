@@ -50,8 +50,8 @@ jobs:
         run: |
           chown -R builder:builder /__w/forager/forager/packaging/aur
           git config --system --add safe.directory /__w/forager/forager/packaging/aur
-          sudo -u builder git config --global user.email "ci@pawprnt.github.io"
-          sudo -u builder git config --global user.name "pawprnt CI"
+          git config --global user.email "ci@pawprnt.github.io"
+          git config --global user.name "pawprnt CI"
 
       - name: Update PKGBUILD version
         run: |
