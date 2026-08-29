@@ -1,0 +1,91 @@
+name: Publish to Flathub
+
+on:
+  workflow_call:
+    inputs:
+      app-id:
+        description: 'Flatpak app ID'
+        required: true
+        type: string
+      manifest-path:
+        description: 'Path to Flatpak manifest'
+        required: true
+        type: string
+      flathub-repo:
+        description: 'Flathub GitHub repo (e.g. pawprnt/flathub)'
+        required: true
+        type: string
+    secrets:
+      FLATHUB_GITHUB_TOKEN:
+        description: 'GitHub PAT for Flathub repo'
+        required: true
+
+jobs:
+  build:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: forager.flatpak
+          manifest-path: ${{ inputs.manifest-path }}
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: forager.flatpak
+
+  deploy:
+    name: Push to Flathub
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: flatpak-bundle
+
+      - name: Checkout Flathub repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.flathub-repo }}
+          ref: main
+          token: ${{ secrets.FLATHUB_GITHUB_TOKEN }}
+          path: flathub-repo
+
+      - name: Update manifest
+        run: |
+          cd flathub-repo
+          cp ../${{ inputs.manifest-path }} .
+          cp ../flatpak-bundle/forager.flatpak .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -m "update ${{ inputs.app-id }} to v${{ github.ref_name }}"
+          git push
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.FLATHUB_GITHUB_TOKEN }}
+          path: flathub-repo
+          branch: update/v${{ github.ref_name }}
+          base: main
+          title: "${{ inputs.app-id }} v${{ github.ref_name }}"
+          body: |
+            Automated Flathub update for ${{ inputs.app-id }} v${{ github.ref_name }}.
+
+            Source: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
