@@ -51,6 +51,7 @@ jobs:
 
           # fix permissions for builder user
           chown -R builder:builder /__w/forager/forager/packaging/aur
+          sudo -u builder git config --global --add safe.directory /__w/forager/forager/packaging/aur
 
           # get version from tag
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
