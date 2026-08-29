@@ -35,6 +35,9 @@ jobs:
         run: |
           cd packaging/aur
 
+          # clean local files that conflict with AUR branch
+          rm -f .SRCINFO .gitignore PKGBUILD forager.desktop readme.txt
+
           git init
           git remote add aur aur@aur.archlinux.org:${{ inputs.pkgname }}.git
           git fetch aur master
