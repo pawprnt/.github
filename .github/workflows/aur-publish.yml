@@ -20,14 +20,14 @@ jobs:
       - name: Install tools
         run: pacman -Sy --noconfirm openssh git sed pacman-contrib
 
-      - uses: actions/checkout@v4
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.AUR_DEPLOY_KEY }}" > ~/.ssh/aur_key
           chmod 600 ~/.ssh/aur_key
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - uses: actions/checkout@v4
 
       - name: Push to AUR
         run: |
