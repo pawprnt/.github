@@ -14,8 +14,8 @@ everything here is a work in progress. that's the point.
 ## things
 
 - [forager](https://github.com/pawprnt/forager) - a game launcher for your local game library
-- [tizentube](https://github.com/pawprnt/tizentube) - ad-free youtube for samsung tizen tvs
-- [tizenMngr](https://github.com/pawprnt/tizenMngr) - tizen security research notes
+- [OneBoot](https://github.com/pawprnt/OneBoot) - an Oneshot WME-themed boot installer / live environment
+- [onewm](https://github.com/pawprnt/onewm) - a wlroots Wayland compositor recreating the Oneshot WME desktop
 
 ## me
 
