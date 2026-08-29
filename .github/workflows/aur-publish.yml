@@ -15,11 +15,12 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install tools
-        run: sudo pacman -Sy --noconfirm pacman-contrib
+        run: pacman -Sy --noconfirm openssh git sed pacman-contrib
+
+      - uses: actions/checkout@v4
 
       - name: Setup SSH
         run: |
