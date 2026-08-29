@@ -37,42 +37,46 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Push to AUR
+      - name: Checkout AUR branch
         run: |
           cd packaging/aur
-
-          # clean local files that conflict with AUR branch
           rm -f .SRCINFO .gitignore PKGBUILD forager.desktop readme.txt
-
           git init
           git remote add aur aur@aur.archlinux.org:${{ inputs.pkgname }}.git
           git fetch aur master
           git checkout aur/master
 
-          # fix permissions for builder user
+      - name: Fix permissions
+        run: |
           chown -R builder:builder /__w/forager/forager/packaging/aur
           sudo -u builder git config --global --add safe.directory /__w/forager/forager/packaging/aur
 
-          # get version from tag
+      - name: Update PKGBUILD version
+        run: |
+          cd packaging/aur
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
             echo "ERROR: must be triggered from a tag push (v*)"
             exit 1
           fi
-
-          # update version
           sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/pkgrel=.*/pkgrel=1/" PKGBUILD
 
-          # update sha256sums (must run as non-root)
+      - name: Update checksums
+        run: |
+          cd packaging/aur
           sudo -u builder updpkgsums
 
-          # update .SRCINFO
+      - name: Update .SRCINFO
+        run: |
+          cd packaging/aur
           sudo -u builder makepkg --printsrcinfo > .SRCINFO
 
-          # commit and push
+      - name: Commit and push
+        run: |
+          cd packaging/aur
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet && exit 0
-          git commit -m "${VERSION}"
+          git commit -m "${GITHUB_REF_NAME#v}"
           git push aur master
