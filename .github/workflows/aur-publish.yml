@@ -49,7 +49,7 @@ jobs:
       - name: Fix permissions
         run: |
           chown -R builder:builder /__w/forager/forager/packaging/aur
-          sudo -u builder git config --global --add safe.directory /__w/forager/forager/packaging/aur
+          git config --system --add safe.directory /__w/forager/forager/packaging/aur
 
       - name: Update PKGBUILD version
         run: |
