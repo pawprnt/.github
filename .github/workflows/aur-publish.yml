@@ -81,4 +81,4 @@ jobs:
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet && exit 0
           git commit -m "${GITHUB_REF_NAME#v}"
-          git push aur master
+          git push aur HEAD:master
