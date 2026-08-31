@@ -1,0 +1,60 @@
+name: Push to Nix Flake Registry
+
+on:
+  workflow_call:
+    inputs:
+      pkgname:
+        description: 'Package name'
+        required: true
+        type: string
+      nixpkgs-repo:
+        description: 'Target nixpkgs repo (e.g. pawprnt/nixpkgs)'
+        required: true
+        type: string
+      nix-path:
+        description: 'Path to nix expression in calling repo'
+        required: false
+        type: string
+        default: 'nix/default.nix'
+    secrets:
+      NIX_GITHUB_TOKEN:
+        description: 'GitHub PAT with repo access to nixpkgs repo'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build package
+        run: nix build .#${{ inputs.pkgname }} --no-link --print-out-paths || nix-build ${{ inputs.nix-path }}
+
+      - name: Checkout nixpkgs repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.nixpkgs-repo }}
+          ref: main
+          token: ${{ secrets.NIX_GITHUB_TOKEN }}
+          path: nixpkgs-repo
+
+      - name: Copy package expression
+        run: |
+          mkdir -p nixpkgs-repo/pkgs/${{ inputs.pkgname }}
+          cp ${{ inputs.nix-path }} nixpkgs-repo/pkgs/${{ inputs.pkgname }}/default.nix
+
+      - name: Commit and push
+        run: |
+          cd nixpkgs-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -m "${{ inputs.pkgname }}: update to ${{ github.ref_name }}"
+          git push
