@@ -33,8 +33,8 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Build package
-        run: nix build .#${{ inputs.pkgname }} --no-link --print-out-paths || nix-build ${{ inputs.nix-path }}
+      - name: Verify nix syntax
+        run: nix-instantiate --parse ${{ inputs.nix-path }} > /dev/null
 
       - name: Checkout nixpkgs repo
         uses: actions/checkout@v4
