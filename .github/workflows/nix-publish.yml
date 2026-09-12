@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: 'nix/default.nix'
+      version:
+        description: 'Package version (used in commit message)'
+        required: false
+        type: string
+        default: ''
     secrets:
       NIX_GITHUB_TOKEN:
         description: 'GitHub PAT with repo access to nixpkgs repo'
@@ -35,6 +40,37 @@ jobs:
 
       - name: Verify nix syntax
         run: nix-instantiate --parse ${{ inputs.nix-path }} > /dev/null
+
+      - name: Compute source hash
+        id: hash
+        run: |
+          # extract owner, repo, rev from fetchFromGitHub in the nix expression
+          OWNER=$(grep -oP 'owner\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          REPO=$(grep -oP 'repo\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          REV=$(grep -oP 'rev\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+          echo "rev=$REV" >> $GITHUB_OUTPUT
+
+          echo "Computing hash for $OWNER/$REPO@$REV..."
+
+          # prefetch the tarball
+          RAW_HASH=$(nix-prefetch-url --unpack --type sha256 \
+            "https://github.com/$OWNER/$REPO/archive/$REV.tar.gz" 2>/dev/null)
+
+          # convert to SRI format
+          SRI_HASH=$(nix hash to-sri --type sha256 "$RAW_HASH")
+
+          echo "hash=$SRI_HASH" >> $GITHUB_OUTPUT
+          echo "Computed hash: $SRI_HASH"
+
+      - name: Update hash in nix expression
+        run: |
+          # replace the placeholder hash with the computed one
+          sed -i 's|hash = "sha256-[^"]*"|hash = "${{ steps.hash.outputs.hash }}"|' \
+            ${{ inputs.nix-path }}
+          echo "Updated hash in ${{ inputs.nix-path }}"
 
       - name: Checkout nixpkgs repo
         uses: actions/checkout@v4
@@ -56,5 +92,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
           git diff --cached --quiet && exit 0
-          git commit -m "${{ inputs.pkgname }}: update to ${{ github.ref_name }}"
+          VERSION="${{ inputs.version || github.ref_name }}"
+          git commit -m "${{ inputs.pkgname }}: update to $VERSION"
           git push
