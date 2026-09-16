@@ -67,8 +67,8 @@ jobs:
 
       - name: Update hash in nix expression
         run: |
-          # replace the placeholder hash with the computed one
-          sed -i 's|hash = "sha256-[^"]*"|hash = "${{ steps.hash.outputs.hash }}"|' \
+          # replace the placeholder hash with the computed one (only standalone hash, not cargoHash)
+          sed -i '/cargoHash/!s|hash = "sha256-[^"]*"|hash = "${{ steps.hash.outputs.hash }}"|' \
             ${{ inputs.nix-path }}
           echo "Updated hash in ${{ inputs.nix-path }}"
 
