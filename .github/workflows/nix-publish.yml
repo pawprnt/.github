@@ -85,6 +85,11 @@ jobs:
           mkdir -p nixpkgs-repo/pkgs/${{ inputs.pkgname }}
           cp ${{ inputs.nix-path }} nixpkgs-repo/pkgs/${{ inputs.pkgname }}/default.nix
 
+      - name: Update flake.lock
+        run: |
+          cd nixpkgs-repo
+          nix flake update
+
       - name: Commit and push
         run: |
           cd nixpkgs-repo
