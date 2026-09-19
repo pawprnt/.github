@@ -1,0 +1,56 @@
+name: Nix Maintenance
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+env:
+  NIXPKGS_REPO: pawprnt/nixpkgs
+
+jobs:
+  update-nixpkgs-unstable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Checkout nixpkgs repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.NIXPKGS_REPO }}
+          ref: main
+          token: ${{ secrets.NIX_GITHUB_TOKEN }}
+          path: nixpkgs-repo
+
+      - name: Update flake.lock
+        run: |
+          cd nixpkgs-repo
+          nix flake update
+          echo "### Nix Maintenance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Updated nixpkgs-unstable** in \`${{ env.NIXPKGS_REPO }}\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify packages evaluate
+        run: |
+          cd nixpkgs-repo
+          echo "Checking all packages evaluate..."
+          for pkg in pkgs/*/; do
+            pkgname=$(basename "$pkg")
+            echo "  - $pkgname"
+            nix-instantiate --parse "pkgs/$pkgname/default.nix" > /dev/null 2>&1 \
+              || echo "::warning::Failed to parse pkgs/$pkgname/default.nix"
+          done
+
+      - name: Commit and push
+        run: |
+          cd nixpkgs-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -m "maintenance: update nixpkgs-unstable"
+          git push

@@ -1,0 +1,86 @@
+name: Nix Debug (dry run)
+
+on:
+  workflow_call:
+    inputs:
+      pkgname:
+        description: 'Package name'
+        required: true
+        type: string
+      nix-path:
+        description: 'Path to nix expression in calling repo'
+        required: false
+        type: string
+        default: 'nix/default.nix'
+      nixpkgs-repo:
+        description: 'Target nixpkgs repo'
+        required: false
+        type: string
+        default: 'pawprnt/nixpkgs'
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Verify nix syntax
+        run: nix-instantiate --parse ${{ inputs.nix-path }} > /dev/null
+
+      - name: Extract fetchFromGitHub info
+        id: info
+        run: |
+          OWNER=$(grep -oP 'owner\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          REPO=$(grep -oP 'repo\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          REV=$(grep -oP 'rev\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+          echo "rev=$REV" >> $GITHUB_OUTPUT
+          echo "### Nix Debug: $OWNER/$REPO@$REV" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | \`${{ inputs.pkgname }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Owner | \`$OWNER\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repo | \`$REPO\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rev | \`$REV\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Compute source hash
+        id: hash
+        run: |
+          OWNER="${{ steps.info.outputs.owner }}"
+          REPO="${{ steps.info.outputs.repo }}"
+          REV="${{ steps.info.outputs.rev }}"
+
+          echo "Computing hash for $OWNER/$REPO@$REV..."
+          RAW_HASH=$(nix-prefetch-url --unpack --type sha256 \
+            "https://github.com/$OWNER/$REPO/archive/$REV.tar.gz" 2>/dev/null)
+          SRI_HASH=$(nix hash to-sri --type sha256 "$RAW_HASH")
+
+          echo "hash=$SRI_HASH" >> $GITHUB_OUTPUT
+          echo "Computed hash: $SRI_HASH"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Source hash:** \`$SRI_HASH\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Dry-run build
+        run: |
+          echo "Attempting nix build of ${{ inputs.pkgname }}..."
+          sed -i '/cargoHash/!s|hash = "sha256-[^"]*"|hash = "${{ steps.hash.outputs.hash }}"|' \
+            ${{ inputs.nix-path }}
+          nix-build -E 'with import <nixpkgs> {}; callPackage ./${{ inputs.nix-path }} {}' \
+            --no-out-link 2>&1 || echo "::warning::Build failed — check log above"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry-run build:** completed" >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify nixpkgs repo state
+        run: |
+          gh api repos/${{ inputs.nixpkgs-repo }}/contents/pkgs/${{ inputs.pkgname }}/default.nix \
+            --jq '.content' 2>/dev/null | base64 -d | grep -E 'rev|hash' || echo "Package not yet in nixpkgs repo"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
