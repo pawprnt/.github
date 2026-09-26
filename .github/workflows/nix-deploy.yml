@@ -43,7 +43,7 @@ jobs:
 
       - name: Compute source hashes
         run: |
-          NIX_PATH="${{ inputs.nix-path }}"
+          export NIX_EXPR="${{ inputs.nix-path }}"
           python3 - <<'PYEOF'
           import os
           import pathlib
@@ -51,7 +51,7 @@ jobs:
           import subprocess
           import sys
 
-          nix_path = pathlib.Path(os.environ["NIX_PATH"])
+          nix_path = pathlib.Path(os.environ["NIX_EXPR"])
           text = nix_path.read_text()
 
           def prefetch(owner, repo, rev):
