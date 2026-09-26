@@ -41,30 +41,109 @@ jobs:
       - name: Verify nix syntax
         run: nix-instantiate --parse ${{ inputs.nix-path }} > /dev/null
 
-      - name: Compute source hash
-        id: hash
+      - name: Compute source hashes
         run: |
-          OWNER=$(grep -oP 'owner\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
-          REPO=$(grep -oP 'repo\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
-          REV=$(grep -oP 'rev\s*=\s*"\K[^"]+' ${{ inputs.nix-path }} | head -1)
+          NIX_PATH="${{ inputs.nix-path }}"
+          python3 - <<'PYEOF'
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
 
-          echo "owner=$OWNER" >> $GITHUB_OUTPUT
-          echo "repo=$REPO" >> $GITHUB_OUTPUT
-          echo "rev=$REV" >> $GITHUB_OUTPUT
+          nix_path = pathlib.Path(os.environ["NIX_PATH"])
+          text = nix_path.read_text()
 
-          echo "Computing hash for $OWNER/$REPO@$REV..."
-          RAW_HASH=$(nix-prefetch-url --unpack --type sha256 \
-            "https://github.com/$OWNER/$REPO/archive/$REV.tar.gz" 2>/dev/null)
-          SRI_HASH=$(nix hash to-sri --type sha256 "$RAW_HASH")
+          def prefetch(owner, repo, rev):
+              url = f"https://github.com/{owner}/{repo}/archive/{rev}.tar.gz"
+              print(f"Computing hash for {owner}/{repo}@{rev}...")
+              raw = subprocess.run(
+                  ["nix-prefetch-url", "--unpack", "--type", "sha256", url],
+                  capture_output=True, text=True,
+              )
+              if raw.returncode != 0:
+                  sys.exit(f"nix-prefetch-url failed for {url}: {raw.stderr.strip()}")
+              sri = subprocess.run(
+                  ["nix", "hash", "to-sri", "--type", "sha256", raw.stdout.strip()],
+                  capture_output=True, text=True,
+              )
+              if sri.returncode != 0:
+                  sys.exit(f"nix hash to-sri failed: {sri.stderr.strip()}")
+              print(f"  -> {sri.stdout.strip()}")
+              return sri.stdout.strip()
 
-          echo "hash=$SRI_HASH" >> $GITHUB_OUTPUT
-          echo "Computed hash: $SRI_HASH"
+          def submodule_revs():
+              if not pathlib.Path(".gitmodules").exists():
+                  return {}
+              cfg = subprocess.run(
+                  ["git", "config", "-f", ".gitmodules", "--get-regexp",
+                   r"^submodule\..*\.(path|url)$"],
+                  capture_output=True, text=True,
+              )
+              if cfg.returncode != 0:
+                  return {}
+              entries = {}
+              for line in cfg.stdout.splitlines():
+                  key, value = line.split(None, 1)
+                  parts = key.split(".")
+                  entries.setdefault(".".join(parts[1:-1]), {})[parts[-1]] = value
+              revs = {}
+              for entry in entries.values():
+                  path = entry.get("path")
+                  url = entry.get("url")
+                  if not path or not url:
+                      continue
+                  sha = subprocess.run(
+                      ["git", "ls-tree", "HEAD", path],
+                      capture_output=True, text=True,
+                  )
+                  fields = sha.stdout.split()
+                  if sha.returncode != 0 or len(fields) < 3:
+                      continue
+                  repo_path = re.sub(r"\.git$", "", url.split("github.com/")[-1])
+                  revs[repo_path] = fields[2]
+              return revs
 
-      - name: Update hash in nix expression
-        run: |
-          sed -i '/cargoHash/!s|hash = "sha256-[^"]*"|hash = "${{ steps.hash.outputs.hash }}"|' \
-            ${{ inputs.nix-path }}
-          echo "Updated hash in ${{ inputs.nix-path }}"
+          sub_revs = submodule_revs()
+
+          def update_block(block):
+              owner = re.search(r'owner\s*=\s*"([^"]+)"', block).group(1)
+              repo = re.search(r'repo\s*=\s*"([^"]+)"', block).group(1)
+              rev = re.search(r'rev\s*=\s*"([^"]+)"', block).group(1)
+              pinned = sub_revs.get(f"{owner}/{repo}")
+              if pinned:
+                  rev = pinned
+                  block = re.sub(r'rev\s*=\s*"[^"]*"', f'rev = "{rev}"', block)
+              return re.sub(
+                  r'hash\s*=\s*"sha256-[^"]*"',
+                  f'hash = "{prefetch(owner, repo, rev)}"',
+                  block,
+              )
+
+          blocks = list(re.finditer(r"fetchFromGitHub\s*\{[^}]*\}", text))
+          if blocks:
+              pieces = []
+              last = 0
+              for match in blocks:
+                  pieces.append(text[last:match.start()])
+                  pieces.append(update_block(match.group(0)))
+                  last = match.end()
+              pieces.append(text[last:])
+              text = "".join(pieces)
+          else:
+              owner = re.search(r'owner\s*=\s*"([^"]+)"', text).group(1)
+              repo = re.search(r'repo\s*=\s*"([^"]+)"', text).group(1)
+              rev = re.search(r'rev\s*=\s*"([^"]+)"', text).group(1)
+              hash_value = prefetch(owner, repo, rev)
+              text = "".join(
+                  line if "cargoHash" in line
+                  else re.sub(r'hash\s*=\s*"sha256-[^"]*"', f'hash = "{hash_value}"', line)
+                  for line in text.splitlines(keepends=True)
+              )
+
+          nix_path.write_text(text)
+          print(f"Updated {len(blocks)} fetchFromGitHub block(s) in {nix_path}")
+          PYEOF
 
       - name: Checkout nixpkgs repo
         uses: actions/checkout@v4
